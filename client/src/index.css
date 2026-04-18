@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-matte-cream text-matte-charcoal antialiased dark:bg-matte-night dark:text-matte-cream;
+  }
+}
+
+/* Flashcard 3D flip */
+.perspective-1000 {
+  perspective: 1000px;
+}
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+/* Landing: subtle entrance */
+@keyframes landing-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.landing-fade-up {
+  opacity: 0;
+  animation: landing-fade-up 0.55s ease-out forwards;
+}
+.landing-delay-1 {
+  animation-delay: 0.08s;
+}
+.landing-delay-2 {
+  animation-delay: 0.16s;
+}
+.landing-delay-3 {
+  animation-delay: 0.24s;
+}
+.landing-delay-4 {
+  animation-delay: 0.32s;
+}
