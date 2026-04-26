@@ -1,6 +1,7 @@
 require('dotenv').config();
 const path = require('path');
 const express = require('express');
+const multer = require('multer');
 const cors = require('cors');
 const connectDB = require('./config/db');
 
@@ -32,6 +33,17 @@ app.use('/api/studyplans', studyPlanRoutes);
 app.use('/api/progress', progressRoutes);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'File is too large. Max upload size is 50MB.' });
+    }
+    return res.status(400).json({ message: err.message });
+  }
+  console.error('Server error:', err);
+  res.status(500).json({ message: 'Server error.' });
+});
 
 function listen(port) {
   const server = app.listen(port, () => {

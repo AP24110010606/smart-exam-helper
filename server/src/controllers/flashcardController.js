@@ -1,16 +1,17 @@
 const path = require('path');
 const Material = require('../models/Material');
 const Flashcard = require('../models/Flashcard');
-const { parseTextToPairs, readTextFileSafe } = require('../utils/parseFlashcards');
+const { parseTextToPairs, extractTextFromFile } = require('../utils/parseFlashcards');
+const { generateFlashcardsWithAI } = require('../utils/aiFlashcardGenerator');
 const { uploadDir } = require('../middleware/upload');
 
 /**
  * POST /api/flashcards/generate
- * Body: { text?: string, materialId?: string }
+ * Body: { text?: string, materialId?: string, useAI?: boolean, cardCount?: number }
  */
 async function generate(req, res) {
   try {
-    const { text, materialId } = req.body;
+    const { text, materialId, useAI = true, cardCount = 10 } = req.body;
     let sourceText = (text || '').trim();
     let material = null;
 
@@ -21,23 +22,44 @@ async function generate(req, res) {
       }
       if (material.fileUrl) {
         const diskPath = path.join(uploadDir, path.basename(material.fileUrl));
-        const fileContent = readTextFileSafe(diskPath);
-        if (fileContent) sourceText = sourceText || fileContent;
+        const fileContent = await extractTextFromFile(diskPath);
+        if (fileContent) {
+          sourceText = sourceText || fileContent;
+        } else if (!sourceText) {
+          sourceText = `Material: ${material.title}\n${material.originalName || material.subject || ''}`;
+        }
       }
     }
 
     if (!sourceText) {
       return res.status(400).json({
         message:
-          'No text to parse. Paste study text or upload a .txt material, or provide text in the body.',
+          'No text to parse. Paste study text or upload a supported document, or provide text in the body.',
       });
     }
 
-    const pairs = parseTextToPairs(sourceText);
-    if (pairs.length === 0) {
+    let pairs = null;
+
+    // Try AI generation first
+    if (useAI) {
+      console.log(`Attempting AI flashcard generation (${cardCount} cards)...`);
+      pairs = await generateFlashcardsWithAI(sourceText, cardCount);
+      if (pairs) {
+        console.log(`AI successfully generated ${pairs.length} flashcards.`);
+      } else {
+        console.log('AI generation failed or unavailable, falling back to rule-based parsing.');
+      }
+    }
+
+    // Fallback to rule-based parsing
+    if (!pairs) {
+      pairs = parseTextToPairs(sourceText);
+    }
+
+    if (!pairs || pairs.length === 0) {
       return res.status(400).json({
         message:
-          'Could not create flashcards. Use paragraphs (first line = question) or Q:/A: pairs.',
+          'Could not create flashcards. Try uploading a document with more content, or paste study text manually.',
       });
     }
 
@@ -49,7 +71,7 @@ async function generate(req, res) {
       difficulty: 'unrated',
     }));
     const created = await Flashcard.insertMany(docs);
-    res.status(201).json({ count: created.length, flashcards: created });
+    res.status(201).json({ count: created.length, flashcards: created, aiGenerated: useAI && pairs === pairs });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Generation failed.' });

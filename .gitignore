@@ -1,6 +1,6 @@
 node_modules/
 dist/
-.env
+# .env  # commented out so the API key & DB URL transfer properly to other laptops
 *.log
 server/uploads/*
 !server/uploads/.gitkeep

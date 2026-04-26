@@ -12,6 +12,9 @@ export default function FlashcardsPage() {
   const [ok, setOk] = useState('');
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [deletingCardId, setDeletingCardId] = useState('');
+  const [useAI, setUseAI] = useState(true);
+  const [cardCount, setCardCount] = useState(10);
 
   async function refresh() {
     const [m, f] = await Promise.all([api.get('/api/materials'), api.get('/api/flashcards')]);
@@ -41,16 +44,16 @@ export default function FlashcardsPage() {
     setMsg('');
     setOk('');
     if (!text.trim() && !materialId) {
-      setMsg('Paste text or select a material (.txt works best for auto-read).');
+      setMsg('Paste study text or select a material to generate flashcards.');
       return;
     }
     setGenerating(true);
     try {
-      const body = {};
+      const body = { useAI, cardCount };
       if (text.trim()) body.text = text;
       if (materialId) body.materialId = materialId;
       const { data } = await api.post('/api/flashcards/generate', body);
-      setOk(`Created ${data.count} flashcards.`);
+      setOk(`✨ Created ${data.count} flashcards${useAI ? ' with AI!' : '.'}`);
       setText('');
       await refresh();
     } catch (err) {
@@ -69,14 +72,36 @@ export default function FlashcardsPage() {
     }
   }
 
+  async function handleDeleteCard(id) {
+    const confirmed = window.confirm('Delete this flashcard?');
+    if (!confirmed) return;
+
+    setMsg('');
+    setOk('');
+    setDeletingCardId(id);
+    try {
+      await api.delete(`/api/flashcards/${id}`);
+      setCards((prev) => {
+        const next = prev.filter((c) => c._id !== id);
+        if (index >= next.length) {
+          setIndex(Math.max(0, next.length - 1));
+        }
+        return next;
+      });
+      setOk('Flashcard removed.');
+    } catch {
+      setMsg('Could not delete flashcard.');
+    } finally {
+      setDeletingCardId('');
+    }
+  }
+
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
         <h1 className="font-landing text-3xl font-semibold text-matte-charcoal dark:text-matte-cream">Flashcards</h1>
         <p className="mt-1 text-matte-charcoal-soft dark:text-matte-border-strong">
-          Generate cards from paragraphs (first line = question) or paired{' '}
-          <code className="rounded-lg bg-matte-cream-dark px-1.5 py-0.5 text-matte-charcoal dark:bg-matte-night-elevated dark:text-matte-cream">Q:</code> /{' '}
-          <code className="rounded-lg bg-matte-cream-dark px-1.5 py-0.5 text-matte-charcoal dark:bg-matte-night-elevated dark:text-matte-cream">A:</code> lines.
+          Select a study material or paste text — AI will automatically generate meaningful Q&A flashcards from your content.
         </p>
       </div>
 
@@ -96,17 +121,17 @@ export default function FlashcardsPage() {
         )}
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="lg:col-span-2">
-            <label className="block text-sm font-medium text-matte-charcoal dark:text-matte-cream">Paste study text</label>
+            <label className="block text-sm font-medium text-matte-charcoal dark:text-matte-cream">Paste study text <span className="text-matte-charcoal-soft dark:text-matte-border-strong">(or select a material below)</span></label>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               rows={6}
-              placeholder={'Q: What is photosynthesis?\nA: Process plants use to convert light to energy.\n\nSecond question line\nRest is answer...'}
+              placeholder={'Paste any study material here — notes, textbook excerpts, lecture content...\n\nThe AI will automatically identify key concepts and generate flashcards.'}
               className="mt-1 w-full rounded-xl border border-matte-border-strong bg-matte-paper px-3 py-2 font-mono text-sm text-matte-charcoal outline-none transition focus:border-matte-terracotta focus:ring-2 focus:ring-matte-terracotta/25 dark:border-matte-night-border dark:bg-matte-night-elevated dark:text-matte-cream"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-matte-charcoal dark:text-matte-cream">Optional: material (.txt)</label>
+            <label className="block text-sm font-medium text-matte-charcoal dark:text-matte-cream">Select uploaded material</label>
             <select
               value={materialId}
               onChange={(e) => setMaterialId(e.target.value)}
@@ -120,14 +145,62 @@ export default function FlashcardsPage() {
               ))}
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-matte-charcoal dark:text-matte-cream">Number of cards</label>
+            <select
+              value={cardCount}
+              onChange={(e) => setCardCount(Number(e.target.value))}
+              className="mt-1 w-full rounded-xl border border-matte-border-strong bg-matte-paper px-3 py-2 text-matte-charcoal dark:border-matte-night-border dark:bg-matte-night-elevated dark:text-matte-cream"
+            >
+              <option value={5}>5 cards</option>
+              <option value={10}>10 cards</option>
+              <option value={15}>15 cards</option>
+              <option value={20}>20 cards</option>
+              <option value={25}>25 cards</option>
+            </select>
+          </div>
         </div>
-        <button
-          type="submit"
-          disabled={generating}
-          className="mt-4 rounded-xl bg-matte-terracotta px-6 py-2.5 font-semibold text-white transition hover:bg-matte-terracotta-hover hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60"
-        >
-          {generating ? 'Generating…' : 'Generate flashcards'}
-        </button>
+
+        {/* AI Toggle & Generate Button */}
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          <button
+            type="submit"
+            disabled={generating}
+            className="inline-flex items-center gap-2 rounded-xl bg-matte-terracotta px-6 py-2.5 font-semibold text-white transition hover:bg-matte-terracotta-hover hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:hover:scale-100"
+          >
+            {generating ? (
+              <>
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Generating…
+              </>
+            ) : (
+              useAI ? '✦ Generate with AI' : 'Generate flashcards'
+            )}
+          </button>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-matte-charcoal dark:text-matte-cream">
+            <div className="relative">
+              <input
+                type="checkbox"
+                checked={useAI}
+                onChange={(e) => setUseAI(e.target.checked)}
+                className="peer sr-only"
+              />
+              <div className="h-6 w-11 rounded-full bg-matte-border-strong transition peer-checked:bg-matte-terracotta dark:bg-matte-night-border" />
+              <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+            </div>
+            AI Mode
+          </label>
+        </div>
+
+        {generating && useAI && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg bg-matte-cream-dark px-3 py-2 text-sm text-matte-charcoal dark:bg-matte-night-elevated dark:text-matte-cream">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-matte-terracotta border-t-transparent" />
+            AI is reading your material and generating flashcards… This may take 5-10 seconds.
+          </div>
+        )}
       </form>
 
       <div className="rounded-2xl border border-matte-border bg-matte-paper p-6 shadow-matte dark:border-matte-night-border dark:bg-matte-night-card dark:shadow-none">
@@ -167,6 +240,14 @@ export default function FlashcardsPage() {
                 className="rounded-xl bg-matte-charcoal px-4 py-2 text-sm font-medium text-matte-cream transition hover:bg-matte-charcoal-soft disabled:opacity-40 dark:bg-matte-terracotta dark:hover:bg-matte-terracotta-hover"
               >
                 Next
+              </button>
+              <button
+                type="button"
+                disabled={!cards[index] || deletingCardId === cards[index]._id}
+                onClick={() => cards[index] && handleDeleteCard(cards[index]._id)}
+                className="rounded-xl bg-matte-error-bg px-4 py-2 text-sm font-medium text-white transition hover:bg-matte-error dark:bg-matte-terracotta dark:hover:bg-matte-terracotta-hover disabled:opacity-50"
+              >
+                {deletingCardId === (cards[index] && cards[index]._id) ? 'Removing…' : 'Delete'}
               </button>
             </div>
           </>
