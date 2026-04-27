@@ -4,13 +4,13 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 
 // Models to try in order — each has separate quota pools
 const MODELS = [
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-flash', 
-  'gemini-2.0-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-3-flash-preview',
-  'gemini-3.1-flash-lite-preview',
+  'gemini-flash-latest',
+  'gemini-2.5-flash',
 ];
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 /**
  * Use Google Gemini to generate meaningful Q/A flashcards from study text.
@@ -25,7 +25,8 @@ async function generateFlashcardsWithAI(text, count = 10) {
   }
 
   // Smart truncation: keep first part + sample from middle + end for coverage
-  const maxChars = 15000;
+  // Reduced to 8000 chars to avoid hitting token limits on free tier
+  const maxChars = 8000;
   let trimmedText;
   if (text.length > maxChars) {
     const partSize = Math.floor(maxChars / 3);
@@ -64,56 +65,64 @@ Respond ONLY with a valid JSON array. No markdown, no code fences, no explanatio
 
   // Try each model until one works
   for (const modelName of MODELS) {
-    try {
-      console.log(`Trying model: ${modelName}...`);
-      const model = genAI.getGenerativeModel({ model: modelName });
+    // Try up to 2 attempts per model (with delay on retry)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`Trying model: ${modelName} (attempt ${attempt})...`);
+        const model = genAI.getGenerativeModel({ model: modelName });
 
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      let responseText = response.text().trim();
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        let responseText = response.text().trim();
 
-      // Strip markdown code fences if the model wraps them
-      responseText = responseText
-        .replace(/^```json\s*/i, '')
-        .replace(/^```\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
+        // Strip markdown code fences if the model wraps them
+        responseText = responseText
+          .replace(/^```json\s*/i, '')
+          .replace(/^```\s*/i, '')
+          .replace(/\s*```$/i, '')
+          .trim();
 
-      const parsed = JSON.parse(responseText);
+        const parsed = JSON.parse(responseText);
 
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        console.error(`${modelName}: AI returned invalid format:`, responseText.slice(0, 200));
-        continue;
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          console.error(`${modelName}: AI returned invalid format:`, responseText.slice(0, 200));
+          break; // try next model
+        }
+
+        // Validate and clean each pair
+        const flashcards = parsed
+          .filter((item) => item && typeof item.question === 'string' && typeof item.answer === 'string')
+          .map((item) => ({
+            question: item.question.trim(),
+            answer: item.answer.trim(),
+          }))
+          .filter((item) => item.question.length > 0 && item.answer.length > 0);
+
+        if (flashcards.length === 0) {
+          console.error(`${modelName}: AI returned no valid flashcard pairs.`);
+          break; // try next model
+        }
+
+        console.log(`AI generated ${flashcards.length} flashcards successfully using ${modelName}.`);
+        return flashcards;
+      } catch (err) {
+        const errMsg = err.message || String(err);
+        console.error(`${modelName} attempt ${attempt} failed: ${errMsg.slice(0, 200)}`);
+        
+        // If rate limited, wait and retry once, then try next model
+        if (errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('Too Many Requests')) {
+          if (attempt === 1) {
+            console.log(`Rate limited on ${modelName}, waiting 5 seconds before retry...`);
+            await sleep(5000);
+            continue; // retry same model
+          }
+          console.log(`Still rate limited on ${modelName}, trying next model...`);
+          break; // try next model
+        }
+        
+        // For other errors, try next model
+        break;
       }
-
-      // Validate and clean each pair
-      const flashcards = parsed
-        .filter((item) => item && typeof item.question === 'string' && typeof item.answer === 'string')
-        .map((item) => ({
-          question: item.question.trim(),
-          answer: item.answer.trim(),
-        }))
-        .filter((item) => item.question.length > 0 && item.answer.length > 0);
-
-      if (flashcards.length === 0) {
-        console.error(`${modelName}: AI returned no valid flashcard pairs.`);
-        continue;
-      }
-
-      console.log(`AI generated ${flashcards.length} flashcards successfully using ${modelName}.`);
-      return flashcards;
-    } catch (err) {
-      const errMsg = err.message || String(err);
-      console.error(`${modelName} failed: ${errMsg.slice(0, 200)}`);
-      
-      // If rate limited, try next model
-      if (errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('Too Many Requests')) {
-        console.log(`Rate limited on ${modelName}, trying next model...`);
-        continue;
-      }
-      
-      // For other errors, also try next model
-      continue;
     }
   }
 

@@ -47,13 +47,18 @@ async function generate(req, res) {
       if (pairs) {
         console.log(`AI successfully generated ${pairs.length} flashcards.`);
       } else {
-        console.log('AI generation failed or unavailable, falling back to rule-based parsing.');
+        console.log('AI generation failed or unavailable.');
+        return res.status(500).json({ 
+          message: 'AI generation failed (API limit reached or error). Please try again or turn off AI Mode.' 
+        });
       }
-    }
-
-    // Fallback to rule-based parsing
-    if (!pairs) {
+    } else {
+      // Fallback to rule-based parsing
       pairs = parseTextToPairs(sourceText);
+      // Ensure we don't generate 5000+ cards if they only asked for cardCount
+      if (pairs && pairs.length > cardCount) {
+        pairs = pairs.slice(0, cardCount);
+      }
     }
 
     if (!pairs || pairs.length === 0) {
